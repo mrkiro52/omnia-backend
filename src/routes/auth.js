@@ -25,7 +25,7 @@ router.post('/register', [
     const { email, password, name, surname } = req.body;
 
     // Проверка на существующего пользователя
-    const existingUser = await database.get('SELECT id FROM users WHERE email = ?', [email]);
+    const existingUser = await database.get('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -39,7 +39,7 @@ router.post('/register', [
     // Создание нового пользователя
     const result = await database.run(`
       INSERT INTO users (name, surname, email, password, avatar, rank, join_date, bio)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
     `, [
       name,
       surname,
@@ -52,7 +52,7 @@ router.post('/register', [
     ]);
 
     // Получаем созданного пользователя
-    const newUser = await database.get('SELECT * FROM users WHERE id = ?', [result.id]);
+    const newUser = await database.get('SELECT * FROM users WHERE id = $1', [result.rows[0].id]);
     
     // Вычисляем актуальный ранг
     const calculatedRank = database.calculateRank(newUser.join_date);
@@ -104,7 +104,7 @@ router.post('/login', [
     const { email, password } = req.body;
 
     // Поиск пользователя
-    const user = await database.get('SELECT * FROM users WHERE email = ?', [email]);
+    const user = await database.get('SELECT * FROM users WHERE email = $1', [email]);
     if (!user) {
       return res.status(401).json({
         success: false,

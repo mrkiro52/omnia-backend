@@ -43,7 +43,7 @@ router.post('/create', adminAuth, async (req, res) => {
     }
     
     // Проверяем, не существует ли уже пользователь с таким email
-    const existingUser = await database.get('SELECT id FROM users WHERE email = ?', [email]);
+    const existingUser = await database.get('SELECT id FROM users WHERE email = $1', [email]);
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -57,7 +57,7 @@ router.post('/create', adminAuth, async (req, res) => {
     // Создаем пользователя
     const result = await database.run(`
       INSERT INTO users (name, surname, email, password, phone, bio, rank, join_date, avatar) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
     `, [
       name, 
       surname, 
@@ -71,7 +71,7 @@ router.post('/create', adminAuth, async (req, res) => {
     ]);
 
     // Получаем созданного пользователя
-    const newUser = await database.get('SELECT * FROM users WHERE id = ?', [result.id]);
+    const newUser = await database.get('SELECT * FROM users WHERE id = $1', [result.rows[0].id]);
     
     // Вычисляем актуальный ранг
     const calculatedRank = database.calculateRank(newUser.join_date);
@@ -106,9 +106,9 @@ router.delete('/:id', adminAuth, async (req, res) => {
   try {
     const userId = req.params.id;
     
-    const result = await database.run('DELETE FROM users WHERE id = ?', [userId]);
+    const result = await database.run('DELETE FROM users WHERE id = $1', [userId]);
 
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Пользователь не найден'
@@ -132,7 +132,7 @@ router.delete('/:id', adminAuth, async (req, res) => {
 router.get('/profile', auth, async (req, res) => {
   try {
     // Получаем пользователя из БД
-    const user = await database.get('SELECT * FROM users WHERE id = ?', [req.user.userId]);
+    const user = await database.get('SELECT * FROM users WHERE id = $1', [req.user.userId]);
     
     if (!user) {
       return res.status(404).json({
@@ -147,7 +147,7 @@ router.get('/profile', auth, async (req, res) => {
     // Подсчитываем статистику пользователя (безопасно, если таблица не существует)
     let postsCount = { count: 0 };
     try {
-      postsCount = await database.get('SELECT COUNT(*) as count FROM posts WHERE author_id = ?', [user.id]);
+      postsCount = await database.get('SELECT COUNT(*) as count FROM posts WHERE author_id = $1', [user.id]);
     } catch (error) {
       console.log('Posts table does not exist yet, defaulting to 0');
     }
@@ -188,7 +188,7 @@ router.put('/profile', auth, async (req, res) => {
 
     // Проверяем, что email не занят другим пользователем
     if (email) {
-      const existingUser = await database.get('SELECT id FROM users WHERE email = ? AND id != ?', [email, userId]);
+      const existingUser = await database.get('SELECT id FROM users WHERE email = $1 AND id != $2', [email, userId]);
       if (existingUser) {
         return res.status(400).json({
           success: false,
@@ -200,17 +200,17 @@ router.put('/profile', auth, async (req, res) => {
     // Обновляем профиль пользователя
     await database.run(`
       UPDATE users 
-      SET name = COALESCE(?, name),
-          surname = COALESCE(?, surname),
-          email = COALESCE(?, email),
-          phone = COALESCE(?, phone),
-          bio = COALESCE(?, bio),
-          avatar = COALESCE(?, avatar)
-      WHERE id = ?
+      SET name = COALESCE($1, name),
+          surname = COALESCE($2, surname),
+          email = COALESCE($3, email),
+          phone = COALESCE($4, phone),
+          bio = COALESCE($5, bio),
+          avatar = COALESCE($6, avatar)
+      WHERE id = $7
     `, [name, surname, email, phone, bio, avatar, userId]);
 
     // Получаем обновленного пользователя
-    const updatedUser = await database.get('SELECT * FROM users WHERE id = ?', [userId]);
+    const updatedUser = await database.get('SELECT * FROM users WHERE id = $1', [userId]);
     
     // Вычисляем актуальный ранг
     const calculatedRank = database.calculateRank(updatedUser.join_date);

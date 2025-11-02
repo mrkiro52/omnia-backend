@@ -64,7 +64,7 @@ router.get('/:id', adminAuth, async (req, res) => {
         tc.name as category_name
       FROM tasks t
       LEFT JOIN task_categories tc ON t.category_id = tc.id
-      WHERE t.id = ?
+      WHERE t.id = $1
     `, [id]);
 
     if (!task) {
@@ -108,7 +108,7 @@ router.post('/', adminAuth, async (req, res) => {
     }
 
     // Проверяем, существует ли категория
-    const categoryExists = await database.get('SELECT id FROM task_categories WHERE id = ?', [category_id]);
+    const categoryExists = await database.get('SELECT id FROM task_categories WHERE id = $1', [category_id]);
 
     if (!categoryExists) {
       return res.status(400).json({
@@ -118,7 +118,7 @@ router.post('/', adminAuth, async (req, res) => {
     }
 
     const result = await database.run(
-      'INSERT INTO tasks (category_id, difficulty, question, answer, solution) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO tasks (category_id, difficulty, question, answer, solution) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [category_id, difficulty, question, answer, solution]
     );
 
@@ -129,8 +129,8 @@ router.post('/', adminAuth, async (req, res) => {
         tc.name as category_name
       FROM tasks t
       LEFT JOIN task_categories tc ON t.category_id = tc.id
-      WHERE t.id = ?
-    `, [result.id]);
+      WHERE t.id = $1
+    `, [result.rows[0].id]);
 
     res.json({
       success: true,
@@ -167,7 +167,7 @@ router.put('/:id', adminAuth, async (req, res) => {
     }
 
     // Проверяем, существует ли категория
-    const categoryExists = await database.get('SELECT id FROM task_categories WHERE id = ?', [category_id]);
+    const categoryExists = await database.get('SELECT id FROM task_categories WHERE id = $1', [category_id]);
 
     if (!categoryExists) {
       return res.status(400).json({
@@ -177,7 +177,7 @@ router.put('/:id', adminAuth, async (req, res) => {
     }
 
     await database.run(
-      'UPDATE tasks SET category_id = ?, difficulty = ?, question = ?, answer = ?, solution = ? WHERE id = ?',
+      'UPDATE tasks SET category_id = $1, difficulty = $2, question = $3, answer = $4, solution = $5 WHERE id = $6',
       [category_id, difficulty, question, answer, solution, id]
     );
 
@@ -188,7 +188,7 @@ router.put('/:id', adminAuth, async (req, res) => {
         tc.name as category_name
       FROM tasks t
       LEFT JOIN task_categories tc ON t.category_id = tc.id
-      WHERE t.id = ?
+      WHERE t.id = $1
     `, [id]);
 
     res.json({
@@ -209,9 +209,9 @@ router.delete('/:id', adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await database.run('DELETE FROM tasks WHERE id = ?', [id]);
+    const result = await database.run('DELETE FROM tasks WHERE id = $1', [id]);
 
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Задача не найдена'

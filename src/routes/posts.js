@@ -1,39 +1,52 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
-
-// Временное хранилище постов
-let posts = [
-  {
-    id: 1,
-    author: {
-      name: 'Анна Смирнова',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop&crop=face'
-    },
-    category: 'Frontend',
-    title: 'Лучшие практики работы с React Hooks',
-    content: 'Поделюсь своими наблюдениями по работе с хуками в React...',
-    likes: 24,
-    comments: 8,
-    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    isLiked: false,
-    commentsData: []
-  }
-];
+const database = require('../models/database');
 
 // Получить все посты
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { category } = req.query;
     
-    let filteredPosts = posts;
+    let query = `
+      SELECT p.*, u.name, u.surname, u.avatar
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+      ORDER BY p.created_at DESC
+    `;
+    let params = [];
+
     if (category && category !== 'Все') {
-      filteredPosts = posts.filter(post => post.category === category);
+      query = `
+        SELECT p.*, u.name, u.surname, u.avatar
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.category = $1
+        ORDER BY p.created_at DESC
+      `;
+      params = [category];
     }
+
+    const posts = await database.all(query, params);
+
+    const formattedPosts = posts.map(post => ({
+      id: post.id,
+      author: {
+        name: `${post.name} ${post.surname}`,
+        avatar: post.avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(`${post.name} ${post.surname}`) + '&background=6366f1&color=fff'
+      },
+      category: post.category,
+      title: post.title || 'Без заголовка',
+      content: post.content,
+      likes: post.likes || 0,
+      comments: 0, // TODO: подсчитать комментарии
+      timestamp: post.created_at,
+      isLiked: false // TODO: проверить лайк пользователя
+    }));
 
     res.json({
       success: true,
-      data: filteredPosts
+      data: formattedPosts
     });
   } catch (error) {
     console.error('Get posts error:', error);
@@ -45,9 +58,10 @@ router.get('/', (req, res) => {
 });
 
 // Создать новый пост
-router.post('/', auth, (req, res) => {
+router.post('/', auth, async (req, res) => {
   try {
     const { title, content, category } = req.body;
+    const userId = req.user.userId;
 
     if (!content || content.trim() === '') {
       return res.status(400).json({
@@ -56,28 +70,38 @@ router.post('/', auth, (req, res) => {
       });
     }
 
-    const newPost = {
-      id: posts.length + 1,
-      author: {
-        name: 'Вы',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face'
-      },
-      category: category || 'Frontend',
-      title: title || 'Новый пост',
-      content,
-      likes: 0,
-      comments: 0,
-      timestamp: new Date().toISOString(),
-      isLiked: false,
-      commentsData: []
-    };
+    const result = await database.run(`
+      INSERT INTO posts (user_id, title, content, category)
+      VALUES ($1, $2, $3, $4) RETURNING id
+    `, [userId, title || 'Новый пост', content, category || 'Frontend']);
 
-    posts.unshift(newPost);
+    // Получаем созданный пост с информацией о пользователе
+    const newPost = await database.get(`
+      SELECT p.*, u.name, u.surname, u.avatar
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.id = $1
+    `, [result.rows[0].id]);
+
+    const formattedPost = {
+      id: newPost.id,
+      author: {
+        name: `${newPost.name} ${newPost.surname}`,
+        avatar: newPost.avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(`${newPost.name} ${newPost.surname}`) + '&background=6366f1&color=fff'
+      },
+      category: newPost.category,
+      title: newPost.title,
+      content: newPost.content,
+      likes: newPost.likes || 0,
+      comments: 0,
+      timestamp: newPost.created_at,
+      isLiked: false
+    };
 
     res.status(201).json({
       success: true,
       message: 'Пост успешно создан',
-      data: newPost
+      data: formattedPost
     });
   } catch (error) {
     console.error('Create post error:', error);
@@ -89,11 +113,13 @@ router.post('/', auth, (req, res) => {
 });
 
 // Лайк/дизлайк поста
-router.post('/:id/like', auth, (req, res) => {
+router.post('/:id/like', auth, async (req, res) => {
   try {
     const postId = parseInt(req.params.id);
-    const post = posts.find(p => p.id === postId);
+    const userId = req.user.userId;
 
+    // Проверяем, существует ли пост
+    const post = await database.get('SELECT * FROM posts WHERE id = $1', [postId]);
     if (!post) {
       return res.status(404).json({
         success: false,
@@ -101,13 +127,35 @@ router.post('/:id/like', auth, (req, res) => {
       });
     }
 
-    post.isLiked = !post.isLiked;
-    post.likes += post.isLiked ? 1 : -1;
+    // Проверяем, лайкал ли пользователь этот пост
+    const existingLike = await database.get(
+      'SELECT id FROM post_likes WHERE post_id = $1 AND user_id = $2',
+      [postId, userId]
+    );
+
+    let isLiked;
+    if (existingLike) {
+      // Убираем лайк
+      await database.run('DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2', [postId, userId]);
+      await database.run('UPDATE posts SET likes = likes - 1 WHERE id = $1', [postId]);
+      isLiked = false;
+    } else {
+      // Добавляем лайк
+      await database.run(
+        'INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2)',
+        [postId, userId]
+      );
+      await database.run('UPDATE posts SET likes = likes + 1 WHERE id = $1', [postId]);
+      isLiked = true;
+    }
+
+    // Получаем обновленное количество лайков
+    const updatedPost = await database.get('SELECT likes FROM posts WHERE id = $1', [postId]);
 
     res.json({
       success: true,
-      message: post.isLiked ? 'Лайк добавлен' : 'Лайк убран',
-      data: { likes: post.likes, isLiked: post.isLiked }
+      message: isLiked ? 'Лайк добавлен' : 'Лайк убран',
+      data: { likes: updatedPost.likes, isLiked }
     });
   } catch (error) {
     console.error('Like post error:', error);
@@ -119,12 +167,14 @@ router.post('/:id/like', auth, (req, res) => {
 });
 
 // Добавить комментарий
-router.post('/:id/comments', auth, (req, res) => {
+router.post('/:id/comments', auth, async (req, res) => {
   try {
     const postId = parseInt(req.params.id);
     const { content } = req.body;
-    const post = posts.find(p => p.id === postId);
+    const userId = req.user.userId;
 
+    // Проверяем, существует ли пост
+    const post = await database.get('SELECT * FROM posts WHERE id = $1', [postId]);
     if (!post) {
       return res.status(404).json({
         success: false,
@@ -139,27 +189,34 @@ router.post('/:id/comments', auth, (req, res) => {
       });
     }
 
-    const newComment = {
-      id: Date.now(),
-      author: {
-        name: 'Вы',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face'
-      },
-      content,
-      timestamp: new Date().toISOString()
-    };
+    // Добавляем комментарий
+    const result = await database.run(`
+      INSERT INTO comments (post_id, user_id, content)
+      VALUES ($1, $2, $3) RETURNING id
+    `, [postId, userId, content]);
 
-    if (!post.commentsData) {
-      post.commentsData = [];
-    }
-    
-    post.commentsData.push(newComment);
-    post.comments = post.commentsData.length;
+    // Получаем комментарий с информацией о пользователе
+    const newComment = await database.get(`
+      SELECT c.*, u.name, u.surname, u.avatar
+      FROM comments c
+      JOIN users u ON c.user_id = u.id
+      WHERE c.id = $1
+    `, [result.rows[0].id]);
+
+    const formattedComment = {
+      id: newComment.id,
+      author: {
+        name: `${newComment.name} ${newComment.surname}`,
+        avatar: newComment.avatar || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(`${newComment.name} ${newComment.surname}`) + '&background=6366f1&color=fff'
+      },
+      content: newComment.content,
+      timestamp: newComment.created_at
+    };
 
     res.status(201).json({
       success: true,
       message: 'Комментарий добавлен',
-      data: newComment
+      data: formattedComment
     });
   } catch (error) {
     console.error('Add comment error:', error);

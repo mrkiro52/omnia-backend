@@ -39,7 +39,7 @@ router.post('/categories', adminAuth, async (req, res) => {
     
     // Проверяем, не существует ли уже такая категория
     const existingCategory = await database.get(`
-      SELECT id FROM knowledge_categories WHERE title = ?
+      SELECT id FROM knowledge_categories WHERE title = $1
     `, [title]);
     
     if (existingCategory) {
@@ -51,14 +51,14 @@ router.post('/categories', adminAuth, async (req, res) => {
     
     const result = await database.run(`
       INSERT INTO knowledge_categories (title, description, icon)
-      VALUES (?, ?, ?)
+      VALUES ($1, $2, $3) RETURNING id
     `, [title, description, icon]);
     
     const newCategory = await database.get(`
       SELECT id, title, description, icon
       FROM knowledge_categories 
-      WHERE id = ?
-    `, [result.id]);
+      WHERE id = $1
+    `, [result.rows[0].id]);
     
     res.status(201).json({
       success: true,
@@ -89,7 +89,7 @@ router.put('/categories/:id', adminAuth, async (req, res) => {
     
     // Проверяем, не существует ли уже категория с таким названием (кроме текущей)
     const existingCategory = await database.get(`
-      SELECT id FROM knowledge_categories WHERE title = ? AND id != ?
+      SELECT id FROM knowledge_categories WHERE title = $1 AND id != $2
     `, [title, id]);
     
     if (existingCategory) {
@@ -101,11 +101,11 @@ router.put('/categories/:id', adminAuth, async (req, res) => {
     
     const result = await database.run(`
       UPDATE knowledge_categories 
-      SET title = ?, description = ?, icon = ?
-      WHERE id = ?
+      SET title = $1, description = $2, icon = $3
+      WHERE id = $4
     `, [title, description, icon, id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Категория не найдена'
@@ -115,7 +115,7 @@ router.put('/categories/:id', adminAuth, async (req, res) => {
     const updatedCategory = await database.get(`
       SELECT id, title, description, icon
       FROM knowledge_categories 
-      WHERE id = ?
+      WHERE id = $1
     `, [id]);
     
     res.json({
@@ -139,7 +139,7 @@ router.delete('/categories/:id', adminAuth, async (req, res) => {
     
     // Проверяем, есть ли статьи в этой категории
     const articlesInCategory = await database.get(`
-      SELECT COUNT(*) as count FROM knowledge_articles WHERE category = ?
+      SELECT COUNT(*) as count FROM knowledge_articles WHERE category = $1
     `, [id]);
     
     if (articlesInCategory.count > 0) {
@@ -150,10 +150,10 @@ router.delete('/categories/:id', adminAuth, async (req, res) => {
     }
     
     const result = await database.run(`
-      DELETE FROM knowledge_categories WHERE id = ?
+      DELETE FROM knowledge_categories WHERE id = $1
     `, [id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Категория не найдена'
@@ -204,7 +204,7 @@ router.get('/articles/:id', async (req, res) => {
       SELECT id, title, type, category, content, 
              DATE(created_at) as date
       FROM knowledge_articles 
-      WHERE id = ?
+      WHERE id = $1
     `, [id]);
     
     if (!article) {
@@ -241,15 +241,15 @@ router.post('/articles', adminAuth, async (req, res) => {
     
     const result = await database.run(`
       INSERT INTO knowledge_articles (title, type, category, content)
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4) RETURNING id
     `, [title, type, category, content]);
     
     const newArticle = await database.get(`
       SELECT id, title, type, category, content,
              DATE(created_at) as date
       FROM knowledge_articles 
-      WHERE id = ?
-    `, [result.id]);
+      WHERE id = $1
+    `, [result.rows[0].id]);
     
     res.status(201).json({
       success: true,
@@ -280,11 +280,11 @@ router.put('/articles/:id', adminAuth, async (req, res) => {
     
     const result = await database.run(`
       UPDATE knowledge_articles 
-      SET title = ?, type = ?, category = ?, content = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      SET title = $1, type = $2, category = $3, content = $4, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
     `, [title, type, category, content, id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Статья не найдена'
@@ -295,7 +295,7 @@ router.put('/articles/:id', adminAuth, async (req, res) => {
       SELECT id, title, type, category, content,
              DATE(created_at) as date
       FROM knowledge_articles 
-      WHERE id = ?
+      WHERE id = $1
     `, [id]);
     
     res.json({
@@ -318,10 +318,10 @@ router.delete('/articles/:id', adminAuth, async (req, res) => {
     const { id } = req.params;
     
     const result = await database.run(`
-      DELETE FROM knowledge_articles WHERE id = ?
+      DELETE FROM knowledge_articles WHERE id = $1
     `, [id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Статья не найдена'
@@ -348,7 +348,7 @@ router.delete('/articles', adminAuth, async (req, res) => {
     
     res.json({
       success: true,
-      message: `Удалено статей: ${result.changes}`
+      message: `Удалено статей: ${result.rowCount}`
     });
   } catch (error) {
     console.error('Clear articles error:', error);

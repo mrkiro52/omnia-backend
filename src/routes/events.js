@@ -56,7 +56,7 @@ router.get('/:id', async (req, res) => {
         created_at,
         updated_at
       FROM events 
-      WHERE id = ?
+      WHERE id = $1
     `, [id]);
     
     if (!event) {
@@ -110,12 +110,12 @@ router.post('/', adminAuth, async (req, res) => {
         image, 
         category, 
         organizer
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
     `, [title, description, full_description, date, time, location, image, category, organizer]);
     
     const newEvent = await database.get(`
-      SELECT * FROM events WHERE id = ?
-    `, [result.id]);
+      SELECT * FROM events WHERE id = $1
+    `, [result.rows[0].id]);
     
     res.status(201).json({ 
       success: true, 
@@ -157,20 +157,20 @@ router.put('/:id', adminAuth, async (req, res) => {
     
     const result = await database.run(`
       UPDATE events SET 
-        title = ?, 
-        description = ?, 
-        full_description = ?,
-        date = ?, 
-        time = ?, 
-        location = ?, 
-        image = ?, 
-        category = ?, 
-        organizer = ?,
+        title = $1, 
+        description = $2, 
+        full_description = $3,
+        date = $4, 
+        time = $5, 
+        location = $6, 
+        image = $7, 
+        category = $8, 
+        organizer = $9,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
+      WHERE id = $10
     `, [title, description, full_description, date, time, location, image, category, organizer, id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'Событие не найдено' 
@@ -178,7 +178,7 @@ router.put('/:id', adminAuth, async (req, res) => {
     }
     
     const updatedEvent = await database.get(`
-      SELECT * FROM events WHERE id = ?
+      SELECT * FROM events WHERE id = $1
     `, [id]);
     
     res.json({ 
@@ -202,10 +202,10 @@ router.delete('/:id', adminAuth, async (req, res) => {
     const { id } = req.params;
     
     const result = await database.run(`
-      DELETE FROM events WHERE id = ?
+      DELETE FROM events WHERE id = $1
     `, [id]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'Событие не найдено' 
@@ -233,7 +233,7 @@ router.get('/:id/check-registration', auth, async (req, res) => {
     const userId = req.user.id;
     
     const registration = await database.get(`
-      SELECT * FROM event_registrations WHERE event_id = ? AND user_id = ?
+      SELECT * FROM event_registrations WHERE event_id = $1 AND user_id = $2
     `, [id, userId]);
     
     res.json({ 
@@ -269,7 +269,7 @@ router.post('/:id/register', auth, async (req, res) => {
     
     // Проверяем, существует ли событие
     const event = await database.get(`
-      SELECT * FROM events WHERE id = ?
+      SELECT * FROM events WHERE id = $1
     `, [id]);
     
     if (!event) {
@@ -281,7 +281,7 @@ router.post('/:id/register', auth, async (req, res) => {
     
     // Проверяем, не зарегистрирован ли уже пользователь
     const existingRegistration = await database.get(`
-      SELECT * FROM event_registrations WHERE event_id = ? AND user_id = ?
+      SELECT * FROM event_registrations WHERE event_id = $1 AND user_id = $2
     `, [id, userId]);
     
     if (existingRegistration) {
@@ -293,7 +293,7 @@ router.post('/:id/register', auth, async (req, res) => {
     
     // Регистрируем пользователя
     await database.run(`
-      INSERT INTO event_registrations (event_id, user_id) VALUES (?, ?)
+      INSERT INTO event_registrations (event_id, user_id) VALUES ($1, $2)
     `, [id, userId]);
     
     res.json({ 
@@ -317,10 +317,10 @@ router.delete('/:id/register', auth, async (req, res) => {
     const userId = req.user.id;
     
     const result = await database.run(`
-      DELETE FROM event_registrations WHERE event_id = ? AND user_id = ?
+      DELETE FROM event_registrations WHERE event_id = $1 AND user_id = $2
     `, [id, userId]);
     
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ 
         success: false, 
         message: 'Регистрация не найдена' 
@@ -357,7 +357,7 @@ router.get('/:id/registrations', adminAuth, async (req, res) => {
         er.created_at as registration_date
       FROM event_registrations er
       JOIN users u ON er.user_id = u.id
-      WHERE er.event_id = ?
+      WHERE er.event_id = $1
       ORDER BY er.created_at ASC
     `, [id]);
     

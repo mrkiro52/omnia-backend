@@ -52,21 +52,21 @@ router.post('/', adminAuth, async (req, res) => {
     }
 
     const result = await database.run(
-      'INSERT INTO task_categories (name, description) VALUES (?, ?)',
+      'INSERT INTO task_categories (name, description) VALUES ($1, $2) RETURNING id',
       [name, description || '']
     );
 
     res.json({
       success: true,
       data: {
-        id: result.id,
+        id: result.rows[0].id,
         name,
         description: description || ''
       }
     });
   } catch (error) {
     console.error('Error creating task category:', error);
-    if (error.code === 'SQLITE_CONSTRAINT') {
+    if (error.code === '23505') { // PostgreSQL unique violation
       res.status(400).json({
         success: false,
         message: 'Категория с таким названием уже существует'
@@ -94,7 +94,7 @@ router.put('/:id', adminAuth, async (req, res) => {
     }
 
     await database.run(
-      'UPDATE task_categories SET name = ?, description = ? WHERE id = ?',
+      'UPDATE task_categories SET name = $1, description = $2 WHERE id = $3',
       [name, description || '', id]
     );
 
@@ -104,7 +104,7 @@ router.put('/:id', adminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating task category:', error);
-    if (error.code === 'SQLITE_CONSTRAINT') {
+    if (error.code === '23505') { // PostgreSQL unique violation
       res.status(400).json({
         success: false,
         message: 'Категория с таким названием уже существует'
@@ -124,12 +124,12 @@ router.delete('/:id', adminAuth, async (req, res) => {
     const { id } = req.params;
 
     // Проверяем, есть ли задачи в этой категории
-    const tasksInCategory = await database.all(
-      'SELECT COUNT(*) as count FROM tasks WHERE category_id = ?',
+    const tasksInCategory = await database.get(
+      'SELECT COUNT(*) as count FROM tasks WHERE category_id = $1',
       [id]
     );
 
-    if (tasksInCategory[0].count > 0) {
+    if (tasksInCategory.count > 0) {
       return res.status(400).json({
         success: false,
         message: 'Нельзя удалить категорию, в которой есть задачи'
@@ -137,11 +137,11 @@ router.delete('/:id', adminAuth, async (req, res) => {
     }
 
     const result = await database.run(
-      'DELETE FROM task_categories WHERE id = ?',
+      'DELETE FROM task_categories WHERE id = $1',
       [id]
     );
 
-    if (result.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({
         success: false,
         message: 'Категория не найдена'
