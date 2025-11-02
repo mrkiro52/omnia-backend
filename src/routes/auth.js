@@ -22,7 +22,7 @@ router.post('/register', [
       });
     }
 
-    const { email, password, name, surname } = req.body;
+    const { email, password, name, surname, phone, bio, avatar } = req.body;
 
     // Проверка на существующего пользователя
     const existingUser = await database.get('SELECT id FROM users WHERE email = $1', [email]);
@@ -38,17 +38,18 @@ router.post('/register', [
 
     // Создание нового пользователя
     const result = await database.run(`
-      INSERT INTO users (name, surname, email, password, avatar, rank, join_date, bio)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id
+      INSERT INTO users (name, surname, email, password, avatar, phone, bio, rank, join_date)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
     `, [
       name,
       surname,
       email,
       hashedPassword,
-      `https://ui-avatars.com/api/?name=${name}+${surname}&background=6366f1&color=fff`,
+      avatar || `https://ui-avatars.com/api/?name=${name}+${surname}&background=6366f1&color=fff`,
+      phone || null,
+      bio || '',
       'Новичок',
-      new Date().toISOString().split('T')[0],
-      ''
+      new Date().toISOString().split('T')[0]
     ]);
 
     // Получаем созданного пользователя

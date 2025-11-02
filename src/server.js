@@ -79,7 +79,7 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📝 API Documentation: http://localhost:${PORT}/api/health`);
-      console.log(`💾 Database: SQLite (app.db)`);
+      console.log(`💾 Database: PostgreSQL`);
     });
   } catch (error) {
     console.error('❌ Ошибка запуска сервера:', error);
