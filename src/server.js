@@ -24,7 +24,10 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(helmet()); // Безопасность
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
+    'https://mrkiro52.github.io'
+  ],
   credentials: true
 }));
 app.use(morgan('combined')); // Логирование
